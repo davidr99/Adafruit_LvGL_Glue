@@ -105,22 +105,84 @@ static bool touchscreen_read(struct _lv_indev_drv_t *indev_drv,
     data->point.x = last_x; // Last-pressed coordinates
     data->point.y = last_y;
     return false; // No buffering of ADC touch data
-  } else {
+  } else if (glue->is_custom_touch) { 
     uint8_t fifo; // Number of points in touchscreen FIFO
     bool moar = false;
-    Adafruit_STMPE610 *touch = (Adafruit_STMPE610 *)glue->touchscreen;
+	
     // Before accessing SPI touchscreen, wait on any in-progress
     // DMA screen transfer to finish (shared bus).
     disp->dmaWait();
     disp->endWrite();
-    if ((fifo = touch->bufferSize())) { // 1 or more points await
+	
+	LvGL_Glue_CustomTouch *touch = (LvGL_Glue_CustomTouch *) glue->touchscreen;
+	  
+	fifo = touch->bufferSize();
+		  
+    if (fifo >= 1) { // 1 or more points await
       data->state = LV_INDEV_STATE_PR;  // Is PRESSED
-      TS_Point p = touch->getPoint();
-      // Serial.printf("%d %d %d\r\n", p.x, p.y, p.z);
+	  
+	  TS_Point p = ((LvGL_Glue_CustomTouch *) glue->touchscreen)->getPoint();
+	  	  	  
+      switch (glue->display->getRotation()) {
+      case 0:
+        last_x = map(p.x, TS_MAXX, TS_MINX, 0, disp->width() - 1);
+        last_y = map(p.y, TS_MINY, TS_MAXY, 0, disp->height() - 1);
+        break;
+      case 1:
+        last_x = map(p.y, TS_MINY, TS_MAXY, 0, disp->width() - 1);
+        last_y = map(p.x, TS_MINX, TS_MAXX, 0, disp->height() - 1);
+        break;
+      case 2:
+        last_x = map(p.x, TS_MINX, TS_MAXX, 0, disp->width() - 1);
+        last_y = map(p.y, TS_MAXY, TS_MINY, 0, disp->height() - 1);
+        break;
+      case 3:
+        last_x = map(p.y, TS_MAXY, TS_MINY, 0, disp->width() - 1);
+        last_y = map(p.x, TS_MAXX, TS_MINX, 0, disp->height() - 1);
+        break;
+      }
+      moar = (fifo > 1); // true if more in FIFO, false if last point
+#if defined(NRF52_SERIES)
+      // Not sure what's up here, but nRF doesn't seem to always poll
+      // the FIFO size correctly, causing false release events. If it
+      // looks like we've read the last point from the FIFO, pause
+      // briefly to allow any more FIFO events to pile up. This
+      // doesn't seem to be necessary on SAMD or ESP32. ???
+      if (!moar) {
+        delay(50);
+      }
+#endif
+	} else {                            // FIFO empty
+      data->state = LV_INDEV_STATE_REL; // Is RELEASED
+    }
+
+    data->point.x = last_x; // Last-pressed coordinates
+    data->point.y = last_y;
+    return moar;
+	
+  } else {
+    uint8_t fifo; // Number of points in touchscreen FIFO
+    bool moar = false;
+	
+    // Before accessing SPI touchscreen, wait on any in-progress
+    // DMA screen transfer to finish (shared bus).
+    disp->dmaWait();
+    disp->endWrite();
+	
+	Adafruit_STMPE610 *touch = (Adafruit_STMPE610 *) glue->touchscreen;
+	fifo = touch->bufferSize();
+
+    if (fifo >= 1) { // 1 or more points await
+      data->state = LV_INDEV_STATE_PR;  // Is PRESSED
+	  
+	  TS_Point p = ((Adafruit_STMPE610 *) glue->touchscreen)->getPoint();
+	  	  
+	  // Serial.printf("%d %d %d\r\n", p.x, p.y, p.z);
       // On big TFT FeatherWing, raw X axis is flipped??
       if ((glue->display->width() == 480) || (glue->display->height() == 480)) {
         p.x = (TS_MINX + TS_MAXX) - p.x;
       }
+	  
       switch (glue->display->getRotation()) {
       case 0:
         last_x = map(p.x, TS_MAXX, TS_MINX, 0, disp->width() - 1);
@@ -278,6 +340,7 @@ Adafruit_LvGL_Glue::~Adafruit_LvGL_Glue(void) {
 LvGLStatus Adafruit_LvGL_Glue::begin(Adafruit_SPITFT *tft,
                                      Adafruit_STMPE610 *touch, bool debug) {
   is_adc_touch = false;
+  is_custom_touch = false;
   return begin(tft, (void *)touch, debug);
 }
 /**
@@ -297,6 +360,27 @@ LvGLStatus Adafruit_LvGL_Glue::begin(Adafruit_SPITFT *tft,
 LvGLStatus Adafruit_LvGL_Glue::begin(Adafruit_SPITFT *tft, TouchScreen *touch,
                                      bool debug) {
   is_adc_touch = true;
+  is_custom_touch = false;
+  return begin(tft, (void *)touch, debug);
+}
+/**
+ * @brief Configure the glue layer and the underlying LvGL code to use the given
+ * TFT display driver and touchscreen controller instances
+ *
+ * @param tft Pointer to an **already initialized** display object instance
+ * @param touch Pointer to an **already initialized** `LvGL_Glue_CustomTouch` touchscreen
+ * controller object instance
+ * @param debug Debug flag to enable debug messages. Only used if LV_USE_LOG is
+ * configured in LittleLVGL's lv_conf.h
+ * @return LvGLStatus The status of the initialization:
+ * * LVGL_OK : Success
+ * * LVGL_ERR_TIMER : Failure to set up timers
+ * * LVGL_ERR_ALLOC : Failure to allocate memory
+ */
+LvGLStatus Adafruit_LvGL_Glue::begin(Adafruit_SPITFT *tft, LvGL_Glue_CustomTouch *touch,
+                                     bool debug) {
+  is_custom_touch = true;
+  is_adc_touch = false;
   return begin(tft, (void *)touch, debug);
 }
 /**
