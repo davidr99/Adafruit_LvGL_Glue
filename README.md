@@ -1,4 +1,4 @@
-# Adafruit LvGL Glue [![Build Status](https://github.com/adafruit/Adafruit_LvGL_Glue/workflows/Arduino%20Library%20CI/badge.svg)](https://github.com/adafruit/Adafruit_LvGL_Glue/actions)
+# Adafruit LvGL Glue [![Build Status](https://github.com/davidr99/Adafruit_LvGL_Glue/workflows/Arduino%20Library%20CI/badge.svg)](https://github.com/adafruit/Adafruit_LvGL_Glue/actions)
 
 This Arduino library provides a layer between LittlevGL (a UI library for
 embedded systems) and most of Adafruit's color TFT displays (anything that's
